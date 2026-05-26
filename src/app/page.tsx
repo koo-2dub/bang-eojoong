@@ -155,7 +155,7 @@ export default function Home() {
                 <CountUp end={totalAmount} duration={0.5} separator="," />
               </h1>
 
-              <div className="grid grid-cols-1 gap-4 mb-5">
+              <div className="space-y-4 mb-5">
                 <div className="bg-white/5 rounded-2xl p-4">
 
                   <div className="flex items-center justify-between mb-2">
@@ -230,32 +230,35 @@ export default function Home() {
                   </div>
                 )}
 
-              </div>
-              <div className="bg-white/5 rounded-2xl p-4">
-                <p className="text-sm text-gray-400 mb-1">
-                  이번 달
-                </p>
-                <p className="text-xl font-bold">
-                  ₩{monthlyAmount.toLocaleString()}
-                </p>
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/5 rounded-2xl p-4 text-left">
+                    <p className="text-sm text-gray-400 mb-1">
+                      이번 달
+                    </p>
+                    <p className="text-xl font-bold">
+                      ₩{monthlyAmount.toLocaleString()}
+                    </p>
+                  </div>
 
-              <div className="bg-white/5 rounded-2xl p-4">
-                <p className="text-sm text-gray-400 mb-1">
-                  연속 방어
-                </p>
-                <p className="text-xl font-bold text-green-400">
-                  🔥 {streak}일
-                </p>
-              </div>
-              <div className="bg-white/5 rounded-2xl p-4">
-                <p className="text-sm text-gray-400 mb-1">
-                  가장 많이 참은 소비
-                </p>
+                  <div className="bg-white/5 rounded-2xl p-4 text-left">
+                    <p className="text-sm text-gray-400 mb-1">
+                      연속 방어
+                    </p>
+                    <p className="text-xl font-bold text-green-400">
+                      🔥 {streak}일
+                    </p>
+                  </div>
+                </div>
 
-                <p className="text-xl font-bold">
-                  {topCategory}
-                </p>
+                <div className="bg-white/5 rounded-2xl p-4 text-left">
+                  <p className="text-sm text-gray-400 mb-1">
+                    가장 많이 참은 소비
+                  </p>
+
+                  <p className="text-xl font-bold">
+                    {topCategory}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
