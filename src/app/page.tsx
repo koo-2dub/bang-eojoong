@@ -17,7 +17,7 @@ export default function Home() {
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState("☕");
   const [records, setRecords] = useState<RecordItem[]>([]);
-  const [goal, setGoal] = useState("30000");
+  const [goal, setGoal] = useState("");
   const [goalLocked, setGoalLocked] = useState(false);
   const captureRef = useRef<HTMLDivElement>(null);
 
@@ -52,10 +52,11 @@ export default function Home() {
   const totalAmount = records.reduce((sum, record) => sum + record.amount, 0);
 
   const monthlyAmount = totalAmount;
-  const progress = Math.min(
-    (totalAmount / Number(goal)) * 100,
-    100
-  );
+  const parsedGoal = Number(goal);
+  const hasValidGoal = parsedGoal > 0;
+  const progress = hasValidGoal
+    ? Math.min((totalAmount / parsedGoal) * 100, 100)
+    : 0;
   const goalMessage =
     progress >= 100
       ? "오늘 소비 방어 성공 🔥"
@@ -66,8 +67,7 @@ export default function Home() {
           : progress > 0
             ? "좋은 시작이에요"
             : "오늘 첫 방어를 기록해보세요";
-  const goalAchieved =
-    totalAmount >= Number(goal);
+  const goalAchieved = goalLocked && hasValidGoal && totalAmount >= parsedGoal;
   const todayRecords = records.filter((record) => record.date === today);
   const oldRecords = records.filter((record) => record.date !== today);
   const hasTodayRecord = todayRecords.length > 0;
@@ -192,7 +192,7 @@ export default function Home() {
 
                     <input
                       type="text"
-                      value={Number(goal).toLocaleString()}
+                      value={goal ? Number(goal).toLocaleString() : ""}
                       onChange={(e) => {
                         const value = e.target.value.replace(/,/g, "");
 
@@ -206,7 +206,7 @@ export default function Home() {
                   </div>
                   <button
                     onClick={() => setGoalLocked(true)}
-                    disabled={goalLocked}
+                    disabled={goalLocked || !hasValidGoal}
                     className={`w-full mt-4 py-3 rounded-2xl font-semibold ${goalLocked
                       ? "bg-white/5 text-gray-500"
                       : "bg-[#7CFF5B] text-black active:scale-95"
