@@ -21,11 +21,9 @@ type Milestone = {
 
 type RewardResult = {
   amount: number;
-  isJackpot: boolean;
-  jackpotLabel?: string;
 };
 
-type RevealStage = "preview" | "base" | "ad-loading" | "upgraded";
+type RevealStage = "info" | "base" | "ad-loading" | "upgraded";
 
 const POINTS_STORAGE_KEY = "bang_points";
 const CLAIMED_STORAGE_KEY = "bang_claimed_milestones";
@@ -37,17 +35,9 @@ const FALLBACK_CATEGORY_EMOJI = "💸";
 
 const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-const drawBaseReward = (): RewardResult => {
-  const roll = Math.random();
-  if (roll < 0.005) return { amount: 50, isJackpot: true, jackpotLabel: "JACKPOT! 50P" };
-  if (roll < 0.015) return { amount: 30, isJackpot: true, jackpotLabel: "JACKPOT! 30P" };
-  return { amount: getRandomInt(2, 5), isJackpot: false };
-};
+const drawBaseReward = (): RewardResult => ({ amount: getRandomInt(2, 5) });
 
-const drawDoubleReward = (baseAmount: number) => {
-  const randomDouble = getRandomInt(4, 10);
-  return Math.max(baseAmount * 2, randomDouble);
-};
+const drawDoubleReward = (baseAmount: number) => baseAmount * 2;
 
 export default function Home() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -68,10 +58,11 @@ export default function Home() {
     return saved ? JSON.parse(saved) : {};
   });
   const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
-  const [revealStage, setRevealStage] = useState<RevealStage>("preview");
+  const [revealStage, setRevealStage] = useState<RevealStage>("info");
   const [isAnimatingReward, setIsAnimatingReward] = useState(false);
   const [baseReward, setBaseReward] = useState<RewardResult | null>(null);
   const [finalRewardPoint, setFinalRewardPoint] = useState(0);
+  const [isAdUpgraded, setIsAdUpgraded] = useState(false);
   const captureRef = useRef<HTMLDivElement>(null);
 
   const getSafeCategory = (record: RecordItem) => {
@@ -142,32 +133,42 @@ export default function Home() {
   const deleteRecord = (indexToDelete: number) => setRecords(records.filter((_, index) => index !== indexToDelete));
 
   const openMilestone = (milestone: Milestone) => {
-    setSelectedMilestone(milestone); setRevealStage("preview"); setBaseReward(null); setFinalRewardPoint(0); setIsAnimatingReward(false);
-  };
+    const isClaimable = milestone.reached && !milestone.claimed;
+    setSelectedMilestone(milestone);
+    setIsAnimatingReward(false);
+    setIsAdUpgraded(false);
 
-  const claimBaseReward = () => {
-    if (!selectedMilestone || isAnimatingReward) return;
-    const result = drawBaseReward();
-    setIsAnimatingReward(true); setRevealStage("base"); setBaseReward(result); setFinalRewardPoint(result.amount);
-    setTimeout(() => setIsAnimatingReward(false), 650);
+    if (isClaimable) {
+      const result = drawBaseReward();
+      setBaseReward(result);
+      setFinalRewardPoint(result.amount);
+      setRevealStage("base");
+      setPoints((prev) => prev + result.amount);
+      setClaimedMilestones((prev) => ({ ...prev, [milestone.key]: true }));
+      setIsAnimatingReward(true);
+      setTimeout(() => setIsAnimatingReward(false), 650);
+      return;
+    }
+
+    setRevealStage("info");
+    setBaseReward(null);
+    setFinalRewardPoint(0);
   };
 
   const upgradeRewardWithAd = async () => {
-    if (!selectedMilestone || !baseReward || isAnimatingReward) return;
+    if (!selectedMilestone || !baseReward || isAnimatingReward || isAdUpgraded) return;
     setRevealStage("ad-loading");
     await new Promise((resolve) => setTimeout(resolve, 3000));
     setIsAnimatingReward(true);
     const upgraded = drawDoubleReward(baseReward.amount);
+    const extraPoint = upgraded - baseReward.amount;
+    if (extraPoint > 0) {
+      setPoints((prev) => prev + extraPoint);
+    }
     setFinalRewardPoint(upgraded);
     setRevealStage("upgraded");
+    setIsAdUpgraded(true);
     setTimeout(() => setIsAnimatingReward(false), 650);
-  };
-
-  const completeReward = () => {
-    if (!selectedMilestone || finalRewardPoint <= 0) return;
-    setPoints((prev) => prev + finalRewardPoint);
-    setClaimedMilestones((prev) => ({ ...prev, [selectedMilestone.key]: true }));
-    setSelectedMilestone(null); setRevealStage("preview"); setBaseReward(null); setFinalRewardPoint(0);
   };
 
   const shareImage = async () => {
@@ -178,7 +179,6 @@ export default function Home() {
   };
 
   const remainingForSelected = selectedMilestone ? Math.max(selectedMilestone.amount - todayAmount, 0) : 0;
-  const canClaimSelected = selectedMilestone && remainingForSelected === 0 && !selectedMilestone.claimed;
 
   return <main className="min-h-screen bg-[#0B1020] text-white px-4 py-6 relative">
     {selectedMilestone && <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
@@ -186,28 +186,26 @@ export default function Home() {
         <p className="text-xs uppercase tracking-[0.2em] text-gray-400 mb-1">Reward Box</p>
         <p className="text-lg font-bold mb-4">{selectedMilestone.percent}% Milestone 🎁</p>
 
-        {revealStage === "preview" && <>
+        {revealStage === "info" && <>
           <div className="space-y-1 text-sm text-gray-300 mb-5">
             <p>기준 금액: <span className="text-white font-semibold">{selectedMilestone.amount.toLocaleString()}원</span></p>
             <p>현재 방어 금액: <span className="text-white font-semibold">{todayAmount.toLocaleString()}원</span></p>
             <p>부족한 금액: <span className="text-[#7CFF5B] font-semibold">{remainingForSelected.toLocaleString()}원</span></p>
           </div>
-          <button onClick={claimBaseReward} disabled={!canClaimSelected} className="w-full py-3 rounded-2xl font-semibold bg-[#7CFF5B] text-black active:scale-95 disabled:opacity-40">보상 받기</button>
-          <button disabled className="w-full mt-3 py-3 rounded-2xl bg-white/10 text-gray-500">광고 보고 2배 받기</button>
+          <button onClick={() => setSelectedMilestone(null)} className="w-full py-3 rounded-2xl font-semibold bg-white text-black active:scale-95">확인</button>
         </>}
 
         {(revealStage === "base" || revealStage === "upgraded") && <>
-          <div className={`mb-5 rounded-3xl p-6 text-center border ${baseReward?.isJackpot ? "border-yellow-300 bg-gradient-to-br from-fuchsia-500/30 via-yellow-300/20 to-cyan-400/30" : "border-[#7CFF5B]/40 bg-black/30"}`}>
-            <p className="text-sm text-gray-300 mb-3">축하해요! 보상이 도착했어요</p>
-            {baseReward?.isJackpot && <p className="text-xl font-black mb-2 text-yellow-200 animate-pulse">{baseReward.jackpotLabel}</p>}
-            <div className={`text-6xl font-black ${isAnimatingReward ? "animate-bounce" : ""} ${baseReward?.isJackpot ? "text-yellow-200 drop-shadow-[0_0_16px_rgba(250,204,21,0.9)]" : "text-[#7CFF5B] drop-shadow-[0_0_12px_rgba(124,255,91,0.9)]"}`}>
+          <div className="mb-5 rounded-3xl p-6 text-center border border-[#7CFF5B]/40 bg-black/30">
+            <p className="text-2xl font-bold mb-3 text-[#7CFF5B]">보상 획득!</p>
+            <div className={`text-6xl font-black ${isAnimatingReward ? "animate-bounce" : ""} text-[#7CFF5B] drop-shadow-[0_0_12px_rgba(124,255,91,0.9)]`}>
               +<CountUp key={`${revealStage}-${finalRewardPoint}`} end={finalRewardPoint} duration={0.8} />P
             </div>
             <p className="text-xs text-gray-400 mt-3">✨ ✨ ✨</p>
           </div>
           {revealStage === "base" && <button onClick={upgradeRewardWithAd} className="w-full py-3 rounded-2xl font-semibold bg-white text-black active:scale-95">광고 보고 2배 받기</button>}
           {revealStage === "upgraded" && <p className="text-center text-sm text-[#7CFF5B] mb-3">업그레이드 완료! 더 큰 보상을 획득했어요</p>}
-          <button onClick={completeReward} className="w-full mt-3 py-3 rounded-2xl font-semibold bg-[#7CFF5B] text-black active:scale-95">포인트 받기</button>
+          <button onClick={() => setSelectedMilestone(null)} className="w-full mt-3 py-3 rounded-2xl font-semibold bg-[#7CFF5B] text-black active:scale-95">확인</button>
         </>}
 
         {revealStage === "ad-loading" && <div className="py-10 text-center">
@@ -216,7 +214,7 @@ export default function Home() {
           <p className="text-sm text-gray-400">광고 보상을 계산하고 있어요</p>
         </div>}
 
-        <button onClick={() => revealStage !== "ad-loading" && !isAnimatingReward && setSelectedMilestone(null)} className="w-full mt-3 py-3 rounded-2xl text-gray-400">닫기</button>
+        {revealStage === "ad-loading" && <button onClick={() => !isAnimatingReward && setSelectedMilestone(null)} className="w-full mt-3 py-3 rounded-2xl text-gray-400">닫기</button>}
       </div>
     </div>}
 
