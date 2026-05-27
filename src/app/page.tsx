@@ -23,8 +23,11 @@ export default function Home() {
   });
   const [goal, setGoal] = useState("");
   const [goalLocked, setGoalLocked] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const captureRef = useRef<HTMLDivElement>(null);
-
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   useEffect(() => {
     localStorage.setItem("records", JSON.stringify(records));
   }, [records]);
@@ -114,6 +117,9 @@ export default function Home() {
     link.download = "bang-eojoong.png";
     link.click();
   };
+  if (!mounted) {
+    return null;
+  }
   return (
     <main className="min-h-screen bg-[#0B1020] text-white px-4 py-6">
       <div className="max-w-md mx-auto">
@@ -215,33 +221,33 @@ export default function Home() {
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white/5 rounded-2xl p-4 text-left">
-                    <p className="text-sm text-gray-400 mb-1">
-                      이번 달
-                    </p>
-                    <p className="text-xl font-bold">
-                      ₩{monthlyAmount.toLocaleString()}
-                    </p>
-                  </div>
+                <div className="bg-white/5 rounded-2xl p-4 text-left">
+                  <p className="text-sm text-gray-400 mb-1">
+                    이번 달
+                  </p>
+                  <p className="text-xl font-bold">
+                    ₩{monthlyAmount.toLocaleString()}
+                  </p>
+                </div>
 
-                  <div className="bg-white/5 rounded-2xl p-4 text-left">
-                    <p className="text-sm text-gray-400 mb-1">
-                      연속 방어
-                    </p>
-                    <p className="text-xl font-bold text-green-400">
-                      🔥 {streak}일
-                    </p>
-                  </div>
+                <div className="bg-white/5 rounded-2xl p-4 text-left">
+                  <p className="text-sm text-gray-400 mb-1">
+                    연속 방어
+                  </p>
+                  <p className="text-xl font-bold text-green-400">
+                    🔥 {streak}일
+                  </p>
+                </div>
               </div>
 
               <div className="bg-white/5 rounded-2xl p-4 text-left">
-                  <p className="text-sm text-gray-400 mb-1">
-                    가장 많이 참은 소비
-                  </p>
+                <p className="text-sm text-gray-400 mb-1">
+                  가장 많이 참은 소비
+                </p>
 
-                  <p className="text-xl font-bold">
-                    {topCategory}
-                  </p>
+                <p className="text-xl font-bold">
+                  {topCategory}
+                </p>
               </div>
             </div>
           </div>
