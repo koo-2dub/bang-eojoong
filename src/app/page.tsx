@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import CountUp from "react-countup";
 import { toPng } from "html-to-image";
-import { useRef } from "react";
 
 type RecordItem = {
   category: string;
@@ -11,6 +10,16 @@ type RecordItem = {
   amount: number;
   date: string;
 };
+
+type RewardType = "base" | "double";
+
+type MilestoneModalState = {
+  amount: number;
+  key: string;
+};
+
+const POINTS_STORAGE_KEY = "bang_points";
+const CLAIMED_STORAGE_KEY = "bang_claimed_milestones";
 
 export default function Home() {
   const [amount, setAmount] = useState("");
@@ -23,14 +32,37 @@ export default function Home() {
   });
   const [goal, setGoal] = useState("");
   const [goalLocked, setGoalLocked] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [points, setPoints] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    return Number(localStorage.getItem(POINTS_STORAGE_KEY) || "0");
+  });
+  const [claimedMilestones, setClaimedMilestones] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    const savedClaims = localStorage.getItem(CLAIMED_STORAGE_KEY);
+    return savedClaims ? JSON.parse(savedClaims) : {};
+  });
+  const [selectedMilestone, setSelectedMilestone] = useState<MilestoneModalState | null>(null);
+  const [isWatchingAd, setIsWatchingAd] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const captureRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+
   useEffect(() => {
     localStorage.setItem("records", JSON.stringify(records));
   }, [records]);
+
+  useEffect(() => {
+    localStorage.setItem(POINTS_STORAGE_KEY, String(points));
+  }, [points]);
+
+  useEffect(() => {
+    localStorage.setItem(CLAIMED_STORAGE_KEY, JSON.stringify(claimedMilestones));
+  }, [claimedMilestones]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(""), 1600);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
 
   const today = new Date().toLocaleDateString("ko-KR");
 
@@ -58,9 +90,16 @@ export default function Home() {
   const parsedGoal = Number(goal);
   const hasValidGoal = parsedGoal > 0;
   const goalReady = goalLocked && hasValidGoal;
-  const progress = goalReady
-    ? Math.min((todayAmount / parsedGoal) * 100, 100)
-    : 0;
+  const progress = goalReady ? Math.min((todayAmount / parsedGoal) * 100, 100) : 0;
+
+  const milestoneAmounts = useMemo(() => {
+    if (!goalReady) return [];
+    const step = parsedGoal / 7;
+    return Array.from({ length: 7 }, (_, index) => Math.round(step * (index + 1)));
+  }, [goalReady, parsedGoal]);
+
+  const makeMilestoneKey = (milestoneAmount: number) => `${today}-${parsedGoal}-${milestoneAmount}`;
+
   const goalMessage =
     progress >= 100
       ? "오늘 소비 방어 성공 🔥"
@@ -104,6 +143,22 @@ export default function Home() {
     const updatedRecords = records.filter((_, index) => index !== indexToDelete);
     setRecords(updatedRecords);
   };
+
+  const grantReward = (milestoneKey: string, rewardType: RewardType) => {
+    const pointAmount = rewardType === "double" ? 40 : 20;
+    setPoints((prev) => prev + pointAmount);
+    setClaimedMilestones((prev) => ({ ...prev, [milestoneKey]: true }));
+    setToastMessage(`+${pointAmount}P 획득!`);
+    setSelectedMilestone(null);
+    setIsWatchingAd(false);
+  };
+
+  const handleDoubleReward = async (milestoneKey: string) => {
+    setIsWatchingAd(true);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    grantReward(milestoneKey, "double");
+  };
+
   const shareImage = async () => {
     if (!captureRef.current) return;
 
@@ -117,17 +172,61 @@ export default function Home() {
     link.download = "bang-eojoong.png";
     link.click();
   };
-  if (!mounted) {
-    return null;
-  }
+
   return (
-    <main className="min-h-screen bg-[#0B1020] text-white px-4 py-6">
+    <main className="min-h-screen bg-[#0B1020] text-white px-4 py-6 relative">
+      {toastMessage && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#7CFF5B] text-black font-bold px-4 py-2 rounded-full shadow-lg animate-pulse">
+          {toastMessage}
+        </div>
+      )}
+
+      {selectedMilestone && (
+        <div className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#121a30] rounded-3xl p-5 border border-white/10">
+            <p className="text-gray-400 text-sm mb-1">Milestone 보상</p>
+            <p className="text-xl font-bold mb-2">🎁 ₩{selectedMilestone.amount.toLocaleString()} 달성!</p>
+            <p className="text-sm text-gray-300 mb-5">원하는 보상을 선택하세요.</p>
+
+            <button
+              onClick={() => grantReward(selectedMilestone.key, "base")}
+              className="w-full py-3 rounded-2xl font-semibold bg-[#7CFF5B] text-black active:scale-95 mb-3"
+              disabled={isWatchingAd}
+            >
+              기본 보상 +20P 받기
+            </button>
+            <button
+              onClick={() => handleDoubleReward(selectedMilestone.key)}
+              className="w-full py-3 rounded-2xl font-semibold bg-white/10 text-white active:scale-95"
+              disabled={isWatchingAd}
+            >
+              {isWatchingAd ? "영상 확인 중..." : "2배 보상: 영상 보고 +40P"}
+            </button>
+            <button
+              onClick={() => {
+                if (!isWatchingAd) {
+                  setSelectedMilestone(null);
+                }
+              }}
+              className="w-full mt-3 py-3 rounded-2xl text-gray-400"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md mx-auto">
         <div
           ref={captureRef}
           className="text-center mb-7 mt-3 bg-[#0B1020] px-2 py-4 rounded-3xl"
         >
           <div className="bg-white/5 rounded-3xl p-6">
+            <div className="flex justify-end mb-4">
+              <div className="bg-[#7CFF5B]/20 text-[#7CFF5B] px-3 py-1 rounded-full text-sm font-semibold">
+                현재 포인트 {points.toLocaleString()}P
+              </div>
+            </div>
             <div className="mb-6">
               <p className="text-sm text-gray-400 mb-2">
                 오늘 지켜낸 돈
@@ -167,6 +266,40 @@ export default function Home() {
                     }}
                   />
                 </div>
+
+                {goalReady && (
+                  <div className="mb-4 px-1">
+                    <div className="flex items-center justify-between">
+                      {milestoneAmounts.map((milestone) => {
+                        const milestoneReached = todayAmount >= milestone;
+                        const milestoneKey = makeMilestoneKey(milestone);
+                        const milestoneClaimed = Boolean(claimedMilestones[milestoneKey]);
+
+                        return (
+                          <button
+                            key={milestone}
+                            onClick={() => {
+                              if (milestoneReached && !milestoneClaimed) {
+                                setSelectedMilestone({ amount: milestone, key: milestoneKey });
+                              }
+                            }}
+                            className={`text-lg transition ${milestoneReached ? "opacity-100" : "opacity-30"} ${milestoneClaimed ? "opacity-100" : ""}`}
+                            aria-label={`₩${milestone.toLocaleString()} milestone`}
+                          >
+                            {milestoneClaimed ? "✅" : "🎁"}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      {milestoneAmounts.map((milestone) => (
+                        <span key={`label-${milestone}`} className="text-[10px] text-gray-400">
+                          {Math.round(milestone / 1000)}천
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-3">
                   <label className="text-sm text-gray-400 block mb-2">
