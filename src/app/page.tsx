@@ -5,7 +5,7 @@ import CountUp from "react-countup";
 import { toPng } from "html-to-image";
 
 type RecordItem = {
-  category: string;
+  category?: string;
   reason: string;
   amount: number;
   date: string;
@@ -27,6 +27,7 @@ const RECORDS_STORAGE_KEY = "records";
 const GOAL_STORAGE_KEY = "bang_goal";
 const GOAL_LOCKED_STORAGE_KEY = "bang_goal_locked";
 const MILESTONE_PERCENTAGES = [10, 25, 40, 55, 70, 85, 100];
+const FALLBACK_CATEGORY_EMOJI = "💸";
 
 export default function Home() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -50,6 +51,12 @@ export default function Home() {
   const [isWatchingAd, setIsWatchingAd] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const captureRef = useRef<HTMLDivElement>(null);
+
+  const getSafeCategory = (record: RecordItem) => {
+    if (typeof record.category !== "string") return FALLBACK_CATEGORY_EMOJI;
+    const trimmed = record.category.trim();
+    return trimmed ? trimmed : FALLBACK_CATEGORY_EMOJI;
+  };
 
 
   useEffect(() => {
@@ -121,10 +128,11 @@ export default function Home() {
   const uniqueDates = [...new Set(records.map((record) => record.date))];
   const categoryCount: Record<string, number> = {};
   records.forEach((record) => {
-    categoryCount[record.category] = (categoryCount[record.category] || 0) + 1;
+    const safeCategory = getSafeCategory(record);
+    categoryCount[safeCategory] = (categoryCount[safeCategory] || 0) + 1;
   });
 
-  const topCategory = Object.entries(categoryCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "☕";
+  const topCategory = Object.entries(categoryCount).sort((a, b) => b[1] - a[1])[0]?.[0] || FALLBACK_CATEGORY_EMOJI;
 
   let streak = 0;
   for (let i = 0; i < uniqueDates.length; i++) {
@@ -182,10 +190,10 @@ export default function Home() {
           <div className="w-full max-w-sm bg-[#121a30] rounded-3xl p-5 border border-white/10">
             <p className="text-gray-400 text-sm mb-1">Milestone 보상</p>
             <p className="text-lg font-bold mb-2">{selectedMilestone.percent}% 구간 🎁</p>
-            <p className="text-sm text-gray-300 mb-1">이 보상은 ₩{selectedMilestone.amount.toLocaleString()} 방어 시 열려요</p>
-            <p className="text-sm text-gray-300 mb-1">현재 ₩{todayAmount.toLocaleString()} 방어중</p>
-            {remainingForSelected > 0 && <p className="text-sm text-[#7CFF5B] mb-5">₩{remainingForSelected.toLocaleString()} 더 방어하면 받을 수 있어요</p>}
-            {remainingForSelected === 0 && !selectedMilestone.claimed && <p className="text-sm text-[#7CFF5B] mb-5">지금 보상을 받을 수 있어요!</p>}
+            <p className="text-sm text-gray-300 mb-1">이 보상은 {selectedMilestone.amount.toLocaleString()}원 방어 시 열려요</p>
+            <p className="text-sm text-gray-300 mb-1">현재 {todayAmount.toLocaleString()}원 방어중</p>
+            {remainingForSelected > 0 && <p className="text-sm text-[#7CFF5B] mb-5">{remainingForSelected.toLocaleString()}원 더 방어하면 받을 수 있어요</p>}
+            {remainingForSelected === 0 && !selectedMilestone.claimed && <p className="text-sm text-[#7CFF5B] mb-5">보상 열림</p>}
             {selectedMilestone.claimed && <p className="text-sm text-gray-400 mb-5">이미 보상을 받았어요 ✅</p>}
 
             <button onClick={() => grantReward(selectedMilestone.key, "base")} className="w-full py-3 rounded-2xl font-semibold bg-[#7CFF5B] text-black active:scale-95 mb-3 disabled:opacity-40" disabled={isWatchingAd || remainingForSelected > 0 || selectedMilestone.claimed}>
@@ -262,8 +270,8 @@ export default function Home() {
         </div>
 
         <div className="space-y-3">
-          {todayRecords.length > 0 && <div className="mb-6"><p className="text-sm text-gray-400 mb-3">오늘</p><div className="space-y-3">{todayRecords.map((record, index) => <div key={index} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between"><div><p className="font-semibold">{record.category} {record.reason}</p><p className="text-sm text-gray-400">{record.date}</p></div><div className="flex items-center gap-3"><p className="text-green-400 font-bold">₩{record.amount.toLocaleString()}</p><button onClick={() => deleteRecord(index)} className="text-red-400">✕</button></div></div>)}</div></div>}
-          {oldRecords.length > 0 && <div><p className="text-sm text-gray-400 mb-3">이전 기록</p><div className="space-y-3">{oldRecords.map((record, index) => <div key={index} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between"><div><p className="font-semibold">{record.category} {record.reason}</p><p className="text-sm text-gray-400">{record.date}</p></div><p className="text-green-400 font-bold">₩{record.amount.toLocaleString()}</p></div>)}</div></div>}
+          {todayRecords.length > 0 && <div className="mb-6"><p className="text-sm text-gray-400 mb-3">오늘</p><div className="space-y-3">{todayRecords.map((record, index) => <div key={index} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between"><div><p className="font-semibold">{getSafeCategory(record)} {record.reason}</p><p className="text-sm text-gray-400">{record.date}</p></div><div className="flex items-center gap-3"><p className="text-green-400 font-bold">₩{record.amount.toLocaleString()}</p><button onClick={() => deleteRecord(index)} className="text-red-400">✕</button></div></div>)}</div></div>}
+          {oldRecords.length > 0 && <div><p className="text-sm text-gray-400 mb-3">이전 기록</p><div className="space-y-3">{oldRecords.map((record, index) => <div key={index} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between"><div><p className="font-semibold">{getSafeCategory(record)} {record.reason}</p><p className="text-sm text-gray-400">{record.date}</p></div><p className="text-green-400 font-bold">₩{record.amount.toLocaleString()}</p></div>)}</div></div>}
         </div>
       </div>
     </main>
