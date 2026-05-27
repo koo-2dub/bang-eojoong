@@ -16,17 +16,14 @@ export default function Home() {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState("☕");
-  const [records, setRecords] = useState<RecordItem[]>([]);
+  const [records, setRecords] = useState<RecordItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    const savedRecords = localStorage.getItem("records");
+    return savedRecords ? JSON.parse(savedRecords) : [];
+  });
   const [goal, setGoal] = useState("");
   const [goalLocked, setGoalLocked] = useState(false);
   const captureRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const savedRecords = localStorage.getItem("records");
-    if (savedRecords) {
-      setRecords(JSON.parse(savedRecords));
-    }
-  }, []);
 
   useEffect(() => {
     localStorage.setItem("records", JSON.stringify(records));
@@ -50,12 +47,16 @@ export default function Home() {
   };
 
   const totalAmount = records.reduce((sum, record) => sum + record.amount, 0);
-
+  const todayRecords = records.filter((record) => record.date === today);
+  const todayAmount = todayRecords.reduce((sum, record) => sum + record.amount, 0);
+  const oldRecords = records.filter((record) => record.date !== today);
+  const hasTodayRecord = todayRecords.length > 0;
   const monthlyAmount = totalAmount;
   const parsedGoal = Number(goal);
   const hasValidGoal = parsedGoal > 0;
-  const progress = hasValidGoal
-    ? Math.min((totalAmount / parsedGoal) * 100, 100)
+  const goalReady = goalLocked && hasValidGoal;
+  const progress = goalReady
+    ? Math.min((todayAmount / parsedGoal) * 100, 100)
     : 0;
   const goalMessage =
     progress >= 100
@@ -66,11 +67,8 @@ export default function Home() {
           ? "절반 넘게 방어했어요"
           : progress > 0
             ? "좋은 시작이에요"
-            : "오늘 첫 방어를 기록해보세요";
-  const goalAchieved = goalLocked && hasValidGoal && totalAmount >= parsedGoal;
-  const todayRecords = records.filter((record) => record.date === today);
-  const oldRecords = records.filter((record) => record.date !== today);
-  const hasTodayRecord = todayRecords.length > 0;
+            : "오늘 첫 방어를 기록해보세요 🔥";
+  const goalAchieved = goalReady && todayAmount >= parsedGoal;
   const uniqueDates = [...new Set(records.map((record) => record.date))];
   const categoryCount: Record<string, number> = {};
 
@@ -117,69 +115,51 @@ export default function Home() {
     link.click();
   };
   return (
-    <main className="min-h-screen bg-[#0B1020] text-white p-6">
+    <main className="min-h-screen bg-[#0B1020] text-white px-4 py-6">
       <div className="max-w-md mx-auto">
-        {records.length === 0 ? (
-          <div className="text-center mb-10 mt-20">
-            <p className="text-2xl font-bold mb-3">
-              아직 방어한 돈이 없어요
-            </p>
-            <p className="text-gray-400">
-              오늘 첫 방어를 기록해보세요 🔥
-            </p>
-          </div>
-        ) : (
-          <div>
-            {!hasTodayRecord && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 mb-5">
-                <p className="text-red-400 font-semibold mb-1">
-                  🔥 오늘 아직 방어 기록이 없어요
-                </p>
-
-                <p className="text-sm text-gray-400">
-                  streak가 끊어질 수 있어요
-                </p>
-              </div>
-            )}
-
-            <div
-              ref={captureRef}
-              className="text-center mb-10 mt-10 bg-[#0B1020] px-8 py-10 rounded-3xl"
-            >
+        <div
+          ref={captureRef}
+          className="text-center mb-7 mt-3 bg-[#0B1020] px-2 py-4 rounded-3xl"
+        >
+          <div className="bg-white/5 rounded-3xl p-6">
+            <div className="mb-6">
               <p className="text-sm text-gray-400 mb-2">
                 오늘 지켜낸 돈
               </p>
-
               <h1 className="text-6xl font-bold mb-5">
-                ₩
-                <CountUp end={totalAmount} duration={0.5} separator="," />
+                {hasTodayRecord ? (
+                  <>
+                    ₩
+                    <CountUp end={todayAmount} duration={0.5} separator="," />
+                  </>
+                ) : (
+                  "-"
+                )}
               </h1>
+              {!hasTodayRecord && (
+                <div className="bg-white/5 rounded-2xl px-4 py-4">
+                  <p className="font-semibold mb-1">아직 오늘 방어한 돈이 없어요</p>
+                  <p className="text-sm text-gray-400">오늘 첫 방어를 기록해보세요 🔥</p>
+                </div>
+              )}
+            </div>
 
-              <div className="space-y-4 mb-5">
-                <div className="bg-white/5 rounded-2xl p-4">
-
-                  <div className="flex items-center justify-between mb-2">
-
-                    <p className="text-sm text-gray-400">
-                      오늘 목표
-                    </p>
-
-                    <p className="text-sm text-green-400">
-                      {progress.toFixed(0)}%
-                    </p>
-
-                  </div>
+            <div className="space-y-4 mb-5">
+              <div className="bg-white/5 rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-gray-400">오늘 목표</p>
+                  <p className={`text-sm ${goalReady ? "text-green-400" : "text-gray-500"}`}>
+                    {goalReady ? `${progress.toFixed(0)}%` : "설정 전"}
+                  </p>
                 </div>
 
-                <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden mb-3">
-
+                <div className={`w-full h-3 rounded-full overflow-hidden mb-3 ${goalReady ? "bg-white/10" : "bg-white/5"}`}>
                   <div
-                    className="h-full bg-[#7CFF5B]"
+                    className={`h-full transition-all ${goalReady ? "bg-[#7CFF5B]" : "bg-white/20"}`}
                     style={{
                       width: `${progress}%`,
                     }}
                   />
-
                 </div>
 
                 <div className="mt-3">
@@ -188,8 +168,6 @@ export default function Home() {
                   </label>
 
                   <div className="flex items-center border border-white/10 rounded-2xl px-4 py-3">
-                    <span className="text-gray-400 mr-2">₩</span>
-
                     <input
                       type="text"
                       value={goal ? Number(goal).toLocaleString() : ""}
@@ -201,7 +179,8 @@ export default function Home() {
                         }
                       }}
                       disabled={goalLocked}
-                      className="w-full bg-transparent outline-none text-white"
+                      placeholder="오늘 얼마나 방어할까요?"
+                      className="w-full bg-transparent outline-none text-white placeholder:text-gray-500"
                     />
                   </div>
                   <button
@@ -216,7 +195,7 @@ export default function Home() {
                   </button>
                 </div>
 
-                {goalAchieved && (
+                {goalReady && goalAchieved && (
                   <div className="bg-[#7CFF5B] text-black rounded-2xl p-5 mt-4">
 
                     <p className="text-2xl font-bold mb-1">
@@ -229,8 +208,13 @@ export default function Home() {
 
                   </div>
                 )}
-
-                <div className="grid grid-cols-2 gap-3">
+                {!goalReady && (
+                  <p className="text-xs text-gray-500 text-left">
+                    목표를 설정하면 진행률이 활성화돼요.
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white/5 rounded-2xl p-4 text-left">
                     <p className="text-sm text-gray-400 mb-1">
                       이번 달
@@ -248,9 +232,9 @@ export default function Home() {
                       🔥 {streak}일
                     </p>
                   </div>
-                </div>
+              </div>
 
-                <div className="bg-white/5 rounded-2xl p-4 text-left">
+              <div className="bg-white/5 rounded-2xl p-4 text-left">
                   <p className="text-sm text-gray-400 mb-1">
                     가장 많이 참은 소비
                   </p>
@@ -258,11 +242,10 @@ export default function Home() {
                   <p className="text-xl font-bold">
                     {topCategory}
                   </p>
-                </div>
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         <div className="bg-white/5 p-5 rounded-3xl mb-6">
           <div className="grid grid-cols-4 gap-2 mb-4">
