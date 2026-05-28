@@ -79,3 +79,63 @@ export const fetchAdminSummary = async () => {
     query: "select=user_id,total_records,total_points,last_record_at,last_record_amount,last_record_category&order=last_record_at.desc.nullslast",
   });
 };
+
+export type AnonymousUser = {
+  user_id: string;
+  created_at: string;
+};
+
+export type UserRecord = {
+  id: number;
+  user_id: string;
+  category: string;
+  reason: string;
+  amount: number;
+  recorded_at: string;
+};
+
+export type UserPointEvent = {
+  id: number;
+  user_id: string;
+  event_type: string;
+  points: number;
+  occurred_at: string;
+};
+
+export type RewardClaim = {
+  id: number;
+  user_id: string;
+  milestone_key: string;
+  base_points: number;
+  upgraded_points: number;
+  claimed_at: string;
+};
+
+export const fetchAnonymousUserById = async (userId: string) => {
+  const encodedId = encodeURIComponent(userId);
+  const rows = await requestSupabase<AnonymousUser[]>("anonymous_users", "GET", {
+    query: `select=user_id,created_at&user_id=eq.${encodedId}&limit=1`,
+  });
+  return rows?.[0] ?? null;
+};
+
+export const fetchRecordsByUserId = async (userId: string) => {
+  const encodedId = encodeURIComponent(userId);
+  return requestSupabase<UserRecord[]>("records", "GET", {
+    query: `select=id,user_id,category,reason,amount,recorded_at&user_id=eq.${encodedId}&order=recorded_at.desc`,
+  });
+};
+
+export const fetchPointEventsByUserId = async (userId: string) => {
+  const encodedId = encodeURIComponent(userId);
+  return requestSupabase<UserPointEvent[]>("point_events", "GET", {
+    query: `select=id,user_id,event_type,points,occurred_at&user_id=eq.${encodedId}&order=occurred_at.desc`,
+  });
+};
+
+export const fetchRewardClaimsByUserId = async (userId: string) => {
+  const encodedId = encodeURIComponent(userId);
+  return requestSupabase<RewardClaim[]>("reward_claims", "GET", {
+    query: `select=id,user_id,milestone_key,base_points,upgraded_points,claimed_at&user_id=eq.${encodedId}&order=claimed_at.desc`,
+  });
+};

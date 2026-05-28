@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AdminUserSummary, fetchAdminSummary, isSupabaseConfigured } from "@/lib/supabase";
 
 export default function AdminPage() {
+  const router = useRouter();
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   const [rows, setRows] = useState<AdminUserSummary[] | null>(null);
 
@@ -48,14 +51,30 @@ export default function AdminPage() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.user_id} className="border-t border-white/10">
-                    <td className="p-3 font-mono">{row.user_id}</td>
+                  <tr
+                    key={row.user_id}
+                    className="border-t border-white/10 hover:bg-white/5 transition-colors cursor-pointer"
+                    onClick={() => router.push(`/admin/users/${row.user_id}`)}
+                  >
+                    <td className="p-3 font-mono">
+                      <Link href={`/admin/users/${row.user_id}`} className="underline-offset-2 hover:underline">
+                        {row.user_id}
+                      </Link>
+                    </td>
                     <td className="p-3">{row.total_records}</td>
                     <td className="p-3">{row.total_points}</td>
                     <td className="p-3">{row.last_record_at ? "있음" : "-"}</td>
                     <td className="p-3">{row.last_record_amount ? `₩${row.last_record_amount.toLocaleString()}` : "-"}</td>
                     <td className="p-3">{row.last_record_category || "-"}</td>
-                    <td className="p-3">{row.last_record_at ? new Date(row.last_record_at).toLocaleString("ko-KR") : "-"}</td>
+                    <td className="p-3">
+                      {row.last_record_at ? (
+                        <Link href={`/admin/users/${row.user_id}`} className="block w-full">
+                          {new Date(row.last_record_at).toLocaleString("ko-KR")}
+                        </Link>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
