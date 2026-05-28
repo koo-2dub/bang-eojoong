@@ -31,6 +31,7 @@ const CLAIMED_STORAGE_KEY = "bang_claimed_milestones";
 const RECORDS_STORAGE_KEY = "records";
 const GOAL_STORAGE_KEY = "bang_goal";
 const GOAL_LOCKED_STORAGE_KEY = "bang_goal_locked";
+const USER_ID_STORAGE_KEY = "bang_eojoong_user_id";
 const MILESTONE_PERCENTAGES = [10, 25, 40, 55, 70, 85, 100];
 const FALLBACK_CATEGORY_EMOJI = "💸";
 const SINGLE_ENTRY_LIMIT = 20000;
@@ -112,18 +113,6 @@ export default function Home() {
     localStorage.setItem(GOAL_STORAGE_KEY, goal);
     localStorage.setItem(GOAL_LOCKED_STORAGE_KEY, String(goalLocked));
   }, [mounted, goal, goalLocked]);
-
-  useEffect(() => {
-    if (!mounted) return;
-
-    const existing = localStorage.getItem(USER_ID_STORAGE_KEY);
-    const resolvedUserId = existing || crypto.randomUUID();
-
-    if (!existing) localStorage.setItem(USER_ID_STORAGE_KEY, resolvedUserId);
-    anonymousUserIdRef.current = resolvedUserId;
-
-    void insertToSupabase("anonymous_users", { user_id: resolvedUserId, source: "main_app" });
-  }, [insertToSupabase, mounted]);
 
   const today = new Date().toLocaleDateString("ko-KR");
   const totalAmount = records.reduce((sum, record) => sum + record.amount, 0);
@@ -210,16 +199,6 @@ export default function Home() {
         });
       }
       setClaimedMilestones((prev) => ({ ...prev, [milestone.key]: true }));
-      if (!anonymousUserIdRef.current) {
-        console.error("Supabase insert failed:", { table: "point_events", reason: "missing anonymous user id" });
-      } else {
-        void insertToSupabase("point_events", {
-          user_id: anonymousUserIdRef.current,
-          event_type: "milestone_claim",
-          milestone_key: milestone.key,
-          points: result.amount,
-        });
-      }
       setIsAnimatingReward(true);
       setTimeout(() => setIsAnimatingReward(false), 650);
       return;
