@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import CountUp from "react-countup";
 import { toPng } from "html-to-image";
 
@@ -30,6 +30,9 @@ const CLAIMED_STORAGE_KEY = "bang_claimed_milestones";
 const RECORDS_STORAGE_KEY = "records";
 const GOAL_STORAGE_KEY = "bang_goal";
 const GOAL_LOCKED_STORAGE_KEY = "bang_goal_locked";
+const USER_ID_STORAGE_KEY = "bang_anonymous_user_id";
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const MILESTONE_PERCENTAGES = [10, 25, 40, 55, 70, 85, 100];
 const FALLBACK_CATEGORY_EMOJI = "💸";
 const SINGLE_ENTRY_LIMIT = 20000;
@@ -67,8 +70,61 @@ export default function Home() {
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [goalDraft, setGoalDraft] = useState("");
   const captureRef = useRef<HTMLDivElement>(null);
+  const anonymousUserIdRef = useRef("");
 
-;
+  const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+
+  const insertToSupabase = useCallback(async (table: string, payload: Record<string, unknown>) => {
+    if (!isSupabaseConfigured || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      console.error("Supabase insert failed:", { table, reason: "missing env", payload });
+      return { ok: false, skipped: true };
+    }
+
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseText = await response.text();
+      const parsed = responseText ? JSON.parse(responseText) : null;
+
+      if (!response.ok) {
+        const isRlsLikelyIssue = response.status === 401 || response.status === 403 || (parsed && typeof parsed === "object" && "code" in parsed && parsed.code === "42501");
+        console.error("Supabase insert failed:", {
+          table,
+          payload,
+          status: response.status,
+          statusText: response.statusText,
+          error: parsed,
+          isRlsLikelyIssue,
+        });
+        return { ok: false, skipped: false };
+      }
+
+      console.log("Supabase insert success:", { table, payload, data: parsed });
+      return { ok: true, skipped: false };
+    } catch (error) {
+      console.error("Supabase insert failed:", error);
+      return { ok: false, skipped: false };
+    }
+  }, [isSupabaseConfigured]);
+
+
+  useEffect(() => {
+    if (!mounted) return;
+    console.log("Supabase config status:", {
+      isSupabaseConfigured,
+      hasUrl: Boolean(SUPABASE_URL),
+      hasAnonKey: Boolean(SUPABASE_ANON_KEY),
+    });
+  }, [isSupabaseConfigured, mounted]);
 
   useEffect(() => {
     if (!mounted || !toastMessage) return;
@@ -99,6 +155,18 @@ export default function Home() {
     localStorage.setItem(GOAL_STORAGE_KEY, goal);
     localStorage.setItem(GOAL_LOCKED_STORAGE_KEY, String(goalLocked));
   }, [mounted, goal, goalLocked]);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    const existing = localStorage.getItem(USER_ID_STORAGE_KEY);
+    const resolvedUserId = existing || crypto.randomUUID();
+
+    if (!existing) localStorage.setItem(USER_ID_STORAGE_KEY, resolvedUserId);
+    anonymousUserIdRef.current = resolvedUserId;
+
+    void insertToSupabase("anonymous_users", { user_id: resolvedUserId, source: "main_app" });
+  }, [insertToSupabase, mounted]);
 
   const today = new Date().toLocaleDateString("ko-KR");
   const totalAmount = records.reduce((sum, record) => sum + record.amount, 0);
@@ -136,7 +204,7 @@ export default function Home() {
     else break;
   }
 
-  const addRecord = () => {
+  const addRecord = async () => {
     if (!reason || !amount) return;
     const numericAmount = Number(amount.replace(/,/g, ""));
     if (numericAmount > SINGLE_ENTRY_LIMIT) {
@@ -145,6 +213,19 @@ export default function Home() {
     }
     const newRecord = { category, reason, amount: numericAmount, date: today };
     setRecords([newRecord, ...records]);
+
+    if (!anonymousUserIdRef.current) {
+      console.error("Supabase insert failed:", { table: "records", reason: "missing anonymous user id" });
+    } else {
+      void insertToSupabase("records", {
+        user_id: anonymousUserIdRef.current,
+        category: newRecord.category,
+        reason: newRecord.reason,
+        amount: newRecord.amount,
+        date: newRecord.date,
+      });
+    }
+
     setReason("");
     setAmount("");
   };
@@ -176,6 +257,16 @@ export default function Home() {
       setRevealStage("base");
       setPoints((prev) => prev + result.amount);
       setClaimedMilestones((prev) => ({ ...prev, [milestone.key]: true }));
+      if (!anonymousUserIdRef.current) {
+        console.error("Supabase insert failed:", { table: "point_events", reason: "missing anonymous user id" });
+      } else {
+        void insertToSupabase("point_events", {
+          user_id: anonymousUserIdRef.current,
+          event_type: "milestone_claim",
+          milestone_key: milestone.key,
+          points: result.amount,
+        });
+      }
       setIsAnimatingReward(true);
       setTimeout(() => setIsAnimatingReward(false), 650);
       return;
@@ -193,7 +284,19 @@ export default function Home() {
     setIsAnimatingReward(true);
     const upgraded = Math.max(baseReward.amount * 2, drawUpgradedReward());
     const extraPoint = upgraded - baseReward.amount;
-    if (extraPoint > 0) setPoints((prev) => prev + extraPoint);
+    if (extraPoint > 0) {
+      setPoints((prev) => prev + extraPoint);
+      if (!anonymousUserIdRef.current) {
+        console.error("Supabase insert failed:", { table: "point_events", reason: "missing anonymous user id" });
+      } else {
+        void insertToSupabase("point_events", {
+          user_id: anonymousUserIdRef.current,
+          event_type: "reward_upgrade",
+          milestone_key: selectedMilestone.key,
+          points: extraPoint,
+        });
+      }
+    }
     setFinalRewardPoint(upgraded);
     setRevealStage("upgraded");
     setIsAdUpgraded(true);
