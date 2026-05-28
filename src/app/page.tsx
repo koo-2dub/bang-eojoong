@@ -32,12 +32,12 @@ const GOAL_STORAGE_KEY = "bang_goal";
 const GOAL_LOCKED_STORAGE_KEY = "bang_goal_locked";
 const MILESTONE_PERCENTAGES = [10, 25, 40, 55, 70, 85, 100];
 const FALLBACK_CATEGORY_EMOJI = "💸";
+const SINGLE_ENTRY_LIMIT = 20000;
+const DAILY_REWARD_CAP = 50000;
 
 const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-
 const drawBaseReward = (): RewardResult => ({ amount: getRandomInt(2, 5) });
-
-const drawDoubleReward = (baseAmount: number) => baseAmount * 2;
+const drawUpgradedReward = (): number => getRandomInt(4, 10);
 
 export default function Home() {
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
@@ -63,7 +63,16 @@ export default function Home() {
   const [baseReward, setBaseReward] = useState<RewardResult | null>(null);
   const [finalRewardPoint, setFinalRewardPoint] = useState(0);
   const [isAdUpgraded, setIsAdUpgraded] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
   const captureRef = useRef<HTMLDivElement>(null);
+
+;
+
+  useEffect(() => {
+    if (!mounted || !toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(""), 1700);
+    return () => clearTimeout(timer);
+  }, [mounted, toastMessage]);
 
   const getSafeCategory = (record: RecordItem) => {
     if (typeof record.category !== "string") return FALLBACK_CATEGORY_EMOJI;
@@ -93,6 +102,7 @@ export default function Home() {
   const totalAmount = records.reduce((sum, record) => sum + record.amount, 0);
   const todayRecords = records.filter((record) => record.date === today);
   const todayAmount = todayRecords.reduce((sum, record) => sum + record.amount, 0);
+  const eligibleTodayAmount = Math.min(todayAmount, DAILY_REWARD_CAP);
   const oldRecords = records.filter((record) => record.date !== today);
   const hasTodayRecord = todayRecords.length > 0;
   const parsedGoal = Number(goal);
@@ -102,8 +112,9 @@ export default function Home() {
 
   const milestones: Milestone[] = !goalReady ? [] : MILESTONE_PERCENTAGES.map((percent) => {
     const milestoneAmount = Math.round((parsedGoal * percent) / 100);
+    const cappedMilestoneAmount = Math.min(milestoneAmount, DAILY_REWARD_CAP);
     const key = `${today}-${parsedGoal}-${milestoneAmount}`;
-    return { percent, amount: milestoneAmount, key, reached: todayAmount >= milestoneAmount, claimed: Boolean(claimedMilestones[key]) };
+    return { percent, amount: milestoneAmount, key, reached: eligibleTodayAmount >= cappedMilestoneAmount, claimed: Boolean(claimedMilestones[key]) };
   });
 
   const goalMessage = progress >= 100 ? "오늘 소비 방어 성공 🔥" : progress >= 80 ? "거의 다 왔어요. 조금만 더 방어해요" : progress >= 50 ? "절반 넘게 방어했어요" : progress > 0 ? "좋은 시작이에요" : "오늘 첫 방어를 기록해보세요 🔥";
@@ -125,9 +136,15 @@ export default function Home() {
 
   const addRecord = () => {
     if (!reason || !amount) return;
-    const newRecord = { category, reason, amount: Number(amount.replace(/,/g, "")), date: today };
+    const numericAmount = Number(amount.replace(/,/g, ""));
+    if (numericAmount > SINGLE_ENTRY_LIMIT) {
+      setToastMessage("한 번에 너무 큰 금액은 기록할 수 없어요");
+      return;
+    }
+    const newRecord = { category, reason, amount: numericAmount, date: today };
     setRecords([newRecord, ...records]);
-    setReason(""); setAmount("");
+    setReason("");
+    setAmount("");
   };
 
   const deleteRecord = (indexToDelete: number) => setRecords(records.filter((_, index) => index !== indexToDelete));
@@ -160,11 +177,9 @@ export default function Home() {
     setRevealStage("ad-loading");
     await new Promise((resolve) => setTimeout(resolve, 3000));
     setIsAnimatingReward(true);
-    const upgraded = drawDoubleReward(baseReward.amount);
+    const upgraded = Math.max(baseReward.amount * 2, drawUpgradedReward());
     const extraPoint = upgraded - baseReward.amount;
-    if (extraPoint > 0) {
-      setPoints((prev) => prev + extraPoint);
-    }
+    if (extraPoint > 0) setPoints((prev) => prev + extraPoint);
     setFinalRewardPoint(upgraded);
     setRevealStage("upgraded");
     setIsAdUpgraded(true);
@@ -175,12 +190,15 @@ export default function Home() {
     if (!captureRef.current) return;
     const image = await toPng(captureRef.current, { backgroundColor: "#0B1020", cacheBust: true });
     const link = document.createElement("a");
-    link.href = image; link.download = "bang-eojoong.png"; link.click();
+    link.href = image;
+    link.download = "bang-eojoong.png";
+    link.click();
   };
 
   const remainingForSelected = selectedMilestone ? Math.max(selectedMilestone.amount - todayAmount, 0) : 0;
 
   return <main className="min-h-screen bg-[#0B1020] text-white px-4 py-6 relative">
+    {toastMessage && <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[60] bg-black/80 border border-white/20 px-4 py-2 rounded-xl text-sm">{toastMessage}</div>}
     {selectedMilestone && <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
       <div className="w-full max-w-sm rounded-3xl border border-white/15 bg-gradient-to-b from-[#1b2649] to-[#10172e] p-5 shadow-[0_0_60px_rgba(124,255,91,0.2)]">
         <p className="text-xs uppercase tracking-[0.2em] text-gray-400 mb-1">Reward Box</p>
@@ -201,7 +219,7 @@ export default function Home() {
             <div className={`text-6xl font-black ${isAnimatingReward ? "animate-bounce" : ""} text-[#7CFF5B] drop-shadow-[0_0_12px_rgba(124,255,91,0.9)]`}>
               +<CountUp key={`${revealStage}-${finalRewardPoint}`} end={finalRewardPoint} duration={0.8} />P
             </div>
-            <p className="text-xs text-gray-400 mt-3">✨ ✨ ✨</p>
+            <p className="text-xs text-gray-400 mt-3">🎉 ✨ 🎉</p>
           </div>
           {revealStage === "base" && <button onClick={upgradeRewardWithAd} className="w-full py-3 rounded-2xl font-semibold bg-white text-black active:scale-95">광고 보고 2배 받기</button>}
           {revealStage === "upgraded" && <p className="text-center text-sm text-[#7CFF5B] mb-3">업그레이드 완료! 더 큰 보상을 획득했어요</p>}
@@ -220,8 +238,10 @@ export default function Home() {
 
     <div className="max-w-md mx-auto">
       <div ref={captureRef} className="text-center mb-7 mt-3 bg-[#0B1020] px-2 py-4 rounded-3xl"><div className="bg-white/5 rounded-3xl p-6">
-        <div className="flex justify-end mb-4"><div className="bg-[#7CFF5B]/20 text-[#7CFF5B] px-3 py-1 rounded-full text-sm font-semibold">현재 포인트 {points.toLocaleString()}P</div></div>
-        <div className="mb-6"><p className="text-sm text-gray-400 mb-2">오늘 지켜낸 돈</p><h1 className="text-6xl font-bold mb-5">{hasTodayRecord ? <>₩<CountUp end={todayAmount} duration={0.5} separator="," /></> : "-"}</h1>{!hasTodayRecord && <div className="bg-white/5 rounded-2xl px-4 py-4"><p className="font-semibold mb-1">아직 오늘 방어한 돈이 없어요</p><p className="text-sm text-gray-400">오늘 첫 방어를 기록해보세요 🔥</p></div>}</div>
+        <div className="flex justify-end mb-4"><div className="bg-[#7CFF5B]/20 text-[#7CFF5B] px-3 py-1 rounded-full text-sm font-semibold">현재 포인트 {mounted ? points.toLocaleString() : "0"}P</div></div>
+        <div className="mb-6"><p className="text-sm text-gray-400 mb-2">오늘 지켜낸 돈</p><h1 className="text-6xl font-bold mb-3">{hasTodayRecord ? <>₩<CountUp end={todayAmount} duration={0.5} separator="," /></> : "-"}</h1>{!hasTodayRecord && <div className="bg-white/5 rounded-2xl px-4 py-4"><p className="font-semibold mb-1">아직 오늘 방어한 돈이 없어요</p><p className="text-sm text-gray-400">오늘 첫 방어를 기록해보세요 🔥</p></div>}</div>
+        <p className="text-sm text-left mb-3 text-[#b8ffa6]">오늘 {todayAmount.toLocaleString()}원 방어중 🔥</p>
+        {todayAmount >= DAILY_REWARD_CAP && <p className="text-sm text-left mb-3 text-[#7CFF5B] font-semibold">오늘 방어 한도 달성 🎉</p>}
         <div className="space-y-4 mb-5"><div className="bg-white/5 rounded-2xl p-4"><div className="flex items-center justify-between mb-2"><p className="text-sm text-gray-400">오늘 목표</p><p className={`text-sm ${goalReady ? "text-green-400" : "text-gray-500"}`}>{goalReady ? `${progress.toFixed(0)}%` : "설정 전"}</p></div><div className={`w-full h-3 rounded-full overflow-hidden mb-3 ${goalReady ? "bg-white/10" : "bg-white/5"}`}><div className={`h-full transition-all ${goalReady ? "bg-[#7CFF5B]" : "bg-white/20"}`} style={{ width: `${progress}%` }} /></div>
 
         {goalReady && <div className="mb-4"><div className="milestone-scroll flex gap-2 overflow-x-auto pb-2 pr-1 snap-x snap-mandatory">{milestones.map((m) => {
@@ -229,7 +249,7 @@ export default function Home() {
           return <button key={m.key} onClick={() => openMilestone(m)} className={`min-w-[78px] snap-start flex-shrink-0 rounded-2xl border px-3 py-3 text-left transition ${m.claimed ? "border-emerald-300/40 bg-emerald-400/10" : m.reached ? "border-[#7CFF5B]/50 bg-[#7CFF5B]/10 shadow-[0_0_20px_rgba(124,255,91,0.3)] animate-pulse" : "border-white/10 bg-white/5 opacity-55"}`} aria-label={`${m.percent}% milestone`}><div className="flex items-center justify-between"><span className={`text-lg leading-none ${m.reached && !m.claimed ? "drop-shadow-[0_0_10px_rgba(124,255,91,0.8)]" : ""}`}>{m.claimed ? "✅" : "🎁"}</span><span className={`text-[11px] font-semibold ${m.reached ? "text-gray-200" : "text-gray-500"}`}>{m.percent}%</span></div><span className={`mt-2 block text-[11px] font-medium ${m.claimed ? "text-emerald-200" : m.reached ? "text-[#b8ffa6]" : "text-gray-500"}`}>{shortStatus}</span></button>;
         })}</div></div>}
 
-        <div className="mt-3"><label className="text-sm text-gray-400 block mb-2">목표 금액</label><div className="flex items-center border border-white/10 rounded-2xl px-4 py-3"><input type="text" value={goal ? Number(goal).toLocaleString() : ""} onChange={(e) => { const value = e.target.value.replace(/,/g, ""); if (!isNaN(Number(value))) setGoal(value); }} disabled={goalLocked} placeholder="오늘 얼마나 방어할까요?" className="w-full bg-transparent outline-none text-white placeholder:text-gray-500 disabled:text-gray-400" /></div><button onClick={() => setGoalLocked(true)} disabled={goalLocked || !hasValidGoal} className={`w-full mt-4 py-3 rounded-2xl font-semibold ${goalLocked ? "bg-white/5 text-gray-500" : "bg-[#7CFF5B] text-black active:scale-95"}`}>{goalLocked ? "오늘 목표 설정 완료" : "오늘 목표 설정하기"}</button></div>
+        <div className="mt-3"><label className="text-sm text-gray-400 block mb-2">목표 금액</label><div className="flex items-center border border-white/10 rounded-2xl px-4 py-3"><input type="text" value={goal ? Number(goal).toLocaleString() : ""} onChange={(e) => { const value = e.target.value.replace(/,/g, ""); if (!isNaN(Number(value))) setGoal(value); }} disabled={goalLocked} placeholder="오늘 얼마나 방어할까요?" className="w-full bg-transparent outline-none text-white placeholder:text-gray-500 disabled:text-gray-400" /></div><p className="text-xs text-gray-500 text-left mt-2">포인트 인정은 하루 최대 50,000원까지 가능해요</p><button onClick={() => setGoalLocked(true)} disabled={goalLocked || !hasValidGoal} className={`w-full mt-4 py-3 rounded-2xl font-semibold ${goalLocked ? "bg-white/5 text-gray-500" : "bg-[#7CFF5B] text-black active:scale-95"}`}>{goalLocked ? "오늘 목표 설정 완료" : "오늘 목표 설정하기"}</button></div>
         {goalReady && goalAchieved && <div className="bg-[#7CFF5B] text-black rounded-2xl p-5 mt-4"><p className="text-2xl font-bold mb-1">🎉 목표 달성!</p><p>{goalMessage}</p></div>}
         {!goalReady && <p className="text-xs text-gray-500 text-left">목표를 설정하면 진행률과 보상이 활성화돼요.</p>}
         </div>
@@ -240,7 +260,8 @@ export default function Home() {
       <div className="bg-white/5 p-5 rounded-3xl mb-6">
         <div className="grid grid-cols-4 gap-2 mb-4">{["☕", "🍔", "🚕", "🛍"].map((item) => <button key={item} onClick={() => setCategory(item)} className={`py-3 rounded-2xl text-xl ${category === item ? "bg-[#7CFF5B] text-black" : "bg-white/10 text-white"}`}>{item}</button>)}</div>
         <input type="text" placeholder="뭘 참았나요?" value={reason} onChange={(e) => setReason(e.target.value)} className="w-full bg-transparent border border-white/10 rounded-2xl px-4 py-3 mb-4 outline-none" />
-        <input type="text" placeholder="얼마를 지켰나요?" value={amount} onChange={(e) => { const value = e.target.value.replace(/,/g, ""); if (!isNaN(Number(value))) setAmount(Number(value).toLocaleString()); }} onKeyDown={(e) => { if (e.key === "Enter" && reason && amount) addRecord(); }} className="w-full bg-transparent border border-white/10 rounded-2xl px-4 py-3 mb-4 outline-none" />
+        <input type="text" placeholder="얼마를 지켰나요?" value={amount} onChange={(e) => { const value = e.target.value.replace(/,/g, ""); if (!isNaN(Number(value))) setAmount(Number(value).toLocaleString()); }} onKeyDown={(e) => { if (e.key === "Enter" && reason && amount) addRecord(); }} className="w-full bg-transparent border border-white/10 rounded-2xl px-4 py-3 mb-2 outline-none" />
+        <p className="text-xs text-gray-500 mb-4">1회 최대 기록 가능 금액: 20,000원</p>
         <button onClick={addRecord} disabled={!reason || !amount} className={`w-full font-semibold py-4 rounded-2xl transition-all duration-200 ${!reason || !amount ? "bg-white/10 text-gray-500" : "bg-[#7CFF5B] text-black active:scale-95"}`}>+ 방어 기록하기</button>
         <button onClick={shareImage} className="w-full mt-3 bg-white/10 text-white py-4 rounded-2xl">공유 이미지 저장하기</button>
       </div>
