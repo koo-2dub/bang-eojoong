@@ -77,8 +77,6 @@ export default function Home() {
   });
   const captureRef = useRef<HTMLDivElement>(null);
 
-  ;
-
   useEffect(() => {
     if (!mounted || !toastMessage) return;
     const timer = setTimeout(() => setToastMessage(""), 1700);
