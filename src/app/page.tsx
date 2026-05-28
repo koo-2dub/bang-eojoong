@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import CountUp from "react-countup";
 import { toPng } from "html-to-image";
+import { ensureAnonymousUser, insertPointEvent, insertRecord, isSupabaseConfigured } from "@/lib/supabase";
 
 type RecordItem = {
   category?: string;
@@ -30,6 +31,7 @@ const CLAIMED_STORAGE_KEY = "bang_claimed_milestones";
 const RECORDS_STORAGE_KEY = "records";
 const GOAL_STORAGE_KEY = "bang_goal";
 const GOAL_LOCKED_STORAGE_KEY = "bang_goal_locked";
+const USER_ID_STORAGE_KEY = "bang_user_id";
 const MILESTONE_PERCENTAGES = [10, 25, 40, 55, 70, 85, 100];
 const FALLBACK_CATEGORY_EMOJI = "💸";
 const SINGLE_ENTRY_LIMIT = 20000;
@@ -66,9 +68,14 @@ export default function Home() {
   const [toastMessage, setToastMessage] = useState("");
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [goalDraft, setGoalDraft] = useState("");
+  const [userId] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const savedUserId = localStorage.getItem(USER_ID_STORAGE_KEY);
+    const nextUserId = savedUserId || `user_${Math.random().toString(36).slice(2, 10)}`;
+    if (!savedUserId) localStorage.setItem(USER_ID_STORAGE_KEY, nextUserId);
+    return nextUserId;
+  });
   const captureRef = useRef<HTMLDivElement>(null);
-
-;
 
   useEffect(() => {
     if (!mounted || !toastMessage) return;
@@ -76,6 +83,11 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [mounted, toastMessage]);
 
+
+  useEffect(() => {
+    if (!mounted || !userId || !isSupabaseConfigured) return;
+    void ensureAnonymousUser(userId);
+  }, [mounted, userId]);
   const getSafeCategory = (record: RecordItem) => {
     if (typeof record.category !== "string") return FALLBACK_CATEGORY_EMOJI;
     const trimmed = record.category.trim();
@@ -145,6 +157,15 @@ export default function Home() {
     }
     const newRecord = { category, reason, amount: numericAmount, date: today };
     setRecords([newRecord, ...records]);
+    if (userId && isSupabaseConfigured) {
+      void insertRecord({
+        user_id: userId,
+        category,
+        reason,
+        amount: numericAmount,
+        recorded_at: new Date().toISOString(),
+      });
+    }
     setReason("");
     setAmount("");
   };
@@ -175,6 +196,15 @@ export default function Home() {
       setFinalRewardPoint(result.amount);
       setRevealStage("base");
       setPoints((prev) => prev + result.amount);
+      if (userId && isSupabaseConfigured) {
+        void insertPointEvent({
+          user_id: userId,
+          event_type: "milestone_claim",
+          points: result.amount,
+          metadata: { milestone_key: milestone.key, percent: milestone.percent },
+          occurred_at: new Date().toISOString(),
+        });
+      }
       setClaimedMilestones((prev) => ({ ...prev, [milestone.key]: true }));
       setIsAnimatingReward(true);
       setTimeout(() => setIsAnimatingReward(false), 650);
@@ -193,7 +223,18 @@ export default function Home() {
     setIsAnimatingReward(true);
     const upgraded = Math.max(baseReward.amount * 2, drawUpgradedReward());
     const extraPoint = upgraded - baseReward.amount;
-    if (extraPoint > 0) setPoints((prev) => prev + extraPoint);
+    if (extraPoint > 0) {
+      setPoints((prev) => prev + extraPoint);
+      if (userId && isSupabaseConfigured) {
+        void insertPointEvent({
+          user_id: userId,
+          event_type: "milestone_upgrade",
+          points: extraPoint,
+          metadata: { milestone_key: selectedMilestone.key, percent: selectedMilestone.percent },
+          occurred_at: new Date().toISOString(),
+        });
+      }
+    }
     setFinalRewardPoint(upgraded);
     setRevealStage("upgraded");
     setIsAdUpgraded(true);
