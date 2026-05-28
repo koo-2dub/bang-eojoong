@@ -39,7 +39,7 @@ const requestSupabase = async <T>(
 };
 
 export const ensureAnonymousUser = async (userId: string) => {
-  await requestSupabase("anonymous_users", "POST", {
+  return requestSupabase("anonymous_users", "POST", {
     body: { user_id: userId },
     query: "on_conflict=user_id",
   });
@@ -52,7 +52,7 @@ export const insertRecord = async (payload: {
   amount: number;
   recorded_at: string;
 }) => {
-  await requestSupabase("records", "POST", { body: payload });
+  return requestSupabase("records", "POST", { body: payload });
 };
 
 export const insertPointEvent = async (payload: {

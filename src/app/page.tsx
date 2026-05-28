@@ -155,10 +155,42 @@ export default function Home() {
       setToastMessage("한 번에 너무 큰 금액은 기록할 수 없어요");
       return;
     }
+
+    const recordedAt = new Date().toISOString();
     const newRecord = { category, reason, amount: numericAmount, date: today };
     setRecords([newRecord, ...records]);
     setReason("");
     setAmount("");
+
+    if (!userId || !isSupabaseConfigured) return;
+
+    await ensureAnonymousUser(userId);
+    const insertedRecord = await insertRecord({
+      user_id: userId,
+      category,
+      reason,
+      amount: numericAmount,
+      recorded_at: recordedAt,
+    });
+
+    if (!insertedRecord) {
+      console.error("[records] insert failed", {
+        user_id: userId,
+        category,
+        reason,
+        amount: numericAmount,
+        recorded_at: recordedAt,
+      });
+      return;
+    }
+
+    console.log("[records] insert success", {
+      user_id: userId,
+      category,
+      reason,
+      amount: numericAmount,
+      recorded_at: recordedAt,
+    });
   };
 
   const deleteRecord = (indexToDelete: number) => setRecords(records.filter((_, index) => index !== indexToDelete));
