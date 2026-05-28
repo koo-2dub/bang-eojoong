@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import CountUp from "react-countup";
 import { toPng } from "html-to-image";
 import { ensureAnonymousUser, insertPointEvent, insertRecord, isSupabaseConfigured } from "@/lib/supabase";
@@ -31,7 +31,6 @@ const CLAIMED_STORAGE_KEY = "bang_claimed_milestones";
 const RECORDS_STORAGE_KEY = "records";
 const GOAL_STORAGE_KEY = "bang_goal";
 const GOAL_LOCKED_STORAGE_KEY = "bang_goal_locked";
-const USER_ID_STORAGE_KEY = "bang_user_id";
 const MILESTONE_PERCENTAGES = [10, 25, 40, 55, 70, 85, 100];
 const FALLBACK_CATEGORY_EMOJI = "💸";
 const SINGLE_ENTRY_LIMIT = 20000;
@@ -42,7 +41,7 @@ const drawBaseReward = (): RewardResult => ({ amount: getRandomInt(2, 5) });
 const drawUpgradedReward = (): number => getRandomInt(4, 10);
 
 export default function Home() {
-  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  const mounted = useSyncExternalStore(() => () => { }, () => true, () => false);
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState("☕");
@@ -76,6 +75,8 @@ export default function Home() {
     return nextUserId;
   });
   const captureRef = useRef<HTMLDivElement>(null);
+
+  ;
 
   useEffect(() => {
     if (!mounted || !toastMessage) return;
@@ -111,6 +112,18 @@ export default function Home() {
     localStorage.setItem(GOAL_STORAGE_KEY, goal);
     localStorage.setItem(GOAL_LOCKED_STORAGE_KEY, String(goalLocked));
   }, [mounted, goal, goalLocked]);
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    const existing = localStorage.getItem(USER_ID_STORAGE_KEY);
+    const resolvedUserId = existing || crypto.randomUUID();
+
+    if (!existing) localStorage.setItem(USER_ID_STORAGE_KEY, resolvedUserId);
+    anonymousUserIdRef.current = resolvedUserId;
+
+    void insertToSupabase("anonymous_users", { user_id: resolvedUserId, source: "main_app" });
+  }, [insertToSupabase, mounted]);
 
   const today = new Date().toLocaleDateString("ko-KR");
   const totalAmount = records.reduce((sum, record) => sum + record.amount, 0);
@@ -148,7 +161,7 @@ export default function Home() {
     else break;
   }
 
-  const addRecord = () => {
+  const addRecord = async () => {
     if (!reason || !amount) return;
     const numericAmount = Number(amount.replace(/,/g, ""));
     if (numericAmount > SINGLE_ENTRY_LIMIT) {
@@ -157,15 +170,6 @@ export default function Home() {
     }
     const newRecord = { category, reason, amount: numericAmount, date: today };
     setRecords([newRecord, ...records]);
-    if (userId && isSupabaseConfigured) {
-      void insertRecord({
-        user_id: userId,
-        category,
-        reason,
-        amount: numericAmount,
-        recorded_at: new Date().toISOString(),
-      });
-    }
     setReason("");
     setAmount("");
   };
@@ -206,6 +210,16 @@ export default function Home() {
         });
       }
       setClaimedMilestones((prev) => ({ ...prev, [milestone.key]: true }));
+      if (!anonymousUserIdRef.current) {
+        console.error("Supabase insert failed:", { table: "point_events", reason: "missing anonymous user id" });
+      } else {
+        void insertToSupabase("point_events", {
+          user_id: anonymousUserIdRef.current,
+          event_type: "milestone_claim",
+          milestone_key: milestone.key,
+          points: result.amount,
+        });
+      }
       setIsAnimatingReward(true);
       setTimeout(() => setIsAnimatingReward(false), 650);
       return;
@@ -223,18 +237,7 @@ export default function Home() {
     setIsAnimatingReward(true);
     const upgraded = Math.max(baseReward.amount * 2, drawUpgradedReward());
     const extraPoint = upgraded - baseReward.amount;
-    if (extraPoint > 0) {
-      setPoints((prev) => prev + extraPoint);
-      if (userId && isSupabaseConfigured) {
-        void insertPointEvent({
-          user_id: userId,
-          event_type: "milestone_upgrade",
-          points: extraPoint,
-          metadata: { milestone_key: selectedMilestone.key, percent: selectedMilestone.percent },
-          occurred_at: new Date().toISOString(),
-        });
-      }
-    }
+    if (extraPoint > 0) setPoints((prev) => prev + extraPoint);
     setFinalRewardPoint(upgraded);
     setRevealStage("upgraded");
     setIsAdUpgraded(true);
@@ -313,20 +316,20 @@ export default function Home() {
         {todayAmount >= DAILY_REWARD_CAP && <p className="text-sm text-left mb-3 text-[#7CFF5B] font-semibold">오늘 방어 한도 달성 🎉</p>}
         <div className="space-y-4 mb-5"><div className="bg-white/5 rounded-2xl p-4"><div className="flex items-center justify-between mb-2"><p className="text-sm text-gray-400">오늘 목표</p><p className={`text-sm ${goalReady ? "text-green-400" : "text-gray-500"}`}>{goalReady ? `${progress.toFixed(0)}%` : "설정 전"}</p></div><button onClick={openGoalModal} className="w-full text-left bg-white/5 border border-white/10 rounded-2xl px-4 py-3 mb-3 transition active:scale-[0.99]"><p className={`font-semibold ${goalReady ? "text-white" : "text-gray-300"}`}>{goalReady ? `오늘 목표 ₩${parsedGoal.toLocaleString()}` : "오늘은 얼마나 방어할까요?"}</p></button><div className={`w-full h-3 rounded-full overflow-hidden mb-3 ${goalReady ? "bg-white/10" : "bg-white/5"}`}><div className={`h-full transition-all ${goalReady ? "bg-[#7CFF5B]" : "bg-white/20"}`} style={{ width: `${progress}%` }} /></div>
 
-        {goalReady && <div className="mb-4"><div className="milestone-scroll flex gap-2 overflow-x-auto pb-2 pr-1 snap-x snap-mandatory">{milestones.map((m) => {
-          const shortStatus = m.claimed ? "완료" : m.reached ? "열림" : "잠김";
-          return <button key={m.key} onClick={() => openMilestone(m)} className={`min-w-[78px] snap-start flex-shrink-0 rounded-2xl border px-3 py-3 text-left transition ${m.claimed ? "border-emerald-300/40 bg-emerald-400/10" : m.reached ? "border-[#7CFF5B]/50 bg-[#7CFF5B]/10 shadow-[0_0_20px_rgba(124,255,91,0.3)] animate-pulse" : "border-white/10 bg-white/5 opacity-55"}`} aria-label={`${m.percent}% milestone`}><div className="flex items-center justify-between"><span className={`text-lg leading-none ${m.reached && !m.claimed ? "drop-shadow-[0_0_10px_rgba(124,255,91,0.8)]" : ""}`}>{m.claimed ? "✅" : "🎁"}</span><span className={`text-[11px] font-semibold ${m.reached ? "text-gray-200" : "text-gray-500"}`}>{m.percent}%</span></div><span className={`mt-2 block text-[11px] font-medium ${m.claimed ? "text-emerald-200" : m.reached ? "text-[#b8ffa6]" : "text-gray-500"}`}>{shortStatus}</span></button>;
-        })}</div></div>}
+          {goalReady && <div className="mb-4"><div className="milestone-scroll flex gap-2 overflow-x-auto pb-2 pr-1 snap-x snap-mandatory">{milestones.map((m) => {
+            const shortStatus = m.claimed ? "완료" : m.reached ? "열림" : "잠김";
+            return <button key={m.key} onClick={() => openMilestone(m)} className={`min-w-[78px] snap-start flex-shrink-0 rounded-2xl border px-3 py-3 text-left transition ${m.claimed ? "border-emerald-300/40 bg-emerald-400/10" : m.reached ? "border-[#7CFF5B]/50 bg-[#7CFF5B]/10 shadow-[0_0_20px_rgba(124,255,91,0.3)] animate-pulse" : "border-white/10 bg-white/5 opacity-55"}`} aria-label={`${m.percent}% milestone`}><div className="flex items-center justify-between"><span className={`text-lg leading-none ${m.reached && !m.claimed ? "drop-shadow-[0_0_10px_rgba(124,255,91,0.8)]" : ""}`}>{m.claimed ? "✅" : "🎁"}</span><span className={`text-[11px] font-semibold ${m.reached ? "text-gray-200" : "text-gray-500"}`}>{m.percent}%</span></div><span className={`mt-2 block text-[11px] font-medium ${m.claimed ? "text-emerald-200" : m.reached ? "text-[#b8ffa6]" : "text-gray-500"}`}>{shortStatus}</span></button>;
+          })}</div></div>}
 
-        {goalReady && goalAchieved && <div className="bg-[#7CFF5B] text-black rounded-2xl p-5 mt-4"><p className="text-2xl font-bold mb-1">🎉 목표 달성!</p><p>{goalMessage}</p></div>}
-        <div className="mt-3 space-y-1 text-left text-xs text-gray-500">
-          <p>포인트 인정은 하루 최대 50,000원까지 가능해요</p>
-          <p>목표를 설정하면 진행률과 보상이 열려요</p>
+          {goalReady && goalAchieved && <div className="bg-[#7CFF5B] text-black rounded-2xl p-5 mt-4"><p className="text-2xl font-bold mb-1">🎉 목표 달성!</p><p>{goalMessage}</p></div>}
+          <div className="mt-3 space-y-1 text-left text-xs text-gray-500">
+            <p>포인트 인정은 하루 최대 50,000원까지 가능해요</p>
+            <p>목표를 설정하면 진행률과 보상이 열려요</p>
+          </div>
         </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3"><div className="bg-white/5 rounded-2xl p-4 text-left"><p className="text-sm text-gray-400 mb-1">이번 달</p><p className="text-xl font-bold">₩{totalAmount.toLocaleString()}</p></div><div className="bg-white/5 rounded-2xl p-4 text-left"><p className="text-sm text-gray-400 mb-1">연속 방어</p><p className="text-xl font-bold text-green-400">🔥 {streak}일</p></div></div>
-        <div className="bg-white/5 rounded-2xl p-4 text-left"><p className="text-sm text-gray-400 mb-1">가장 많이 참은 소비</p><p className="text-xl font-bold">{topCategory}</p></div>
-      </div></div></div>
+          <div className="grid grid-cols-2 gap-3"><div className="bg-white/5 rounded-2xl p-4 text-left"><p className="text-sm text-gray-400 mb-1">이번 달</p><p className="text-xl font-bold">₩{totalAmount.toLocaleString()}</p></div><div className="bg-white/5 rounded-2xl p-4 text-left"><p className="text-sm text-gray-400 mb-1">연속 방어</p><p className="text-xl font-bold text-green-400">🔥 {streak}일</p></div></div>
+          <div className="bg-white/5 rounded-2xl p-4 text-left"><p className="text-sm text-gray-400 mb-1">가장 많이 참은 소비</p><p className="text-xl font-bold">{topCategory}</p></div>
+        </div></div></div>
 
       <div className="bg-white/5 p-5 rounded-3xl mb-6">
         <div className="grid grid-cols-4 gap-2 mb-4">{["☕", "🍔", "🚕", "🛍"].map((item) => <button key={item} onClick={() => setCategory(item)} className={`py-3 rounded-2xl text-xl ${category === item ? "bg-[#7CFF5B] text-black" : "bg-white/10 text-white"}`}>{item}</button>)}</div>
@@ -338,7 +341,7 @@ export default function Home() {
       </div>
 
       <div className="space-y-3">{todayRecords.length > 0 && <div className="mb-6"><p className="text-sm text-gray-400 mb-3">오늘</p><div className="space-y-3">{todayRecords.map((record, index) => <div key={index} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between"><div><p className="font-semibold">{getSafeCategory(record)} {record.reason}</p><p className="text-sm text-gray-400">{record.date}</p></div><div className="flex items-center gap-3"><p className="text-green-400 font-bold">₩{record.amount.toLocaleString()}</p><button onClick={() => deleteRecord(index)} className="text-red-400">✕</button></div></div>)}</div></div>}
-      {oldRecords.length > 0 && <div><p className="text-sm text-gray-400 mb-3">이전 기록</p><div className="space-y-3">{oldRecords.map((record, index) => <div key={index} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between"><div><p className="font-semibold">{getSafeCategory(record)} {record.reason}</p><p className="text-sm text-gray-400">{record.date}</p></div><p className="text-green-400 font-bold">₩{record.amount.toLocaleString()}</p></div>)}</div></div>}</div>
+        {oldRecords.length > 0 && <div><p className="text-sm text-gray-400 mb-3">이전 기록</p><div className="space-y-3">{oldRecords.map((record, index) => <div key={index} className="bg-white/5 rounded-2xl p-4 flex items-center justify-between"><div><p className="font-semibold">{getSafeCategory(record)} {record.reason}</p><p className="text-sm text-gray-400">{record.date}</p></div><p className="text-green-400 font-bold">₩{record.amount.toLocaleString()}</p></div>)}</div></div>}</div>
     </div>
   </main>;
 }
