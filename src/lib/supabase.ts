@@ -111,6 +111,12 @@ export type RewardClaim = {
   claimed_at: string;
 };
 
+export type DailyRecord = Pick<UserRecord, "user_id" | "category" | "amount" | "recorded_at">;
+
+export type DailyPointEvent = Pick<UserPointEvent, "user_id" | "event_type" | "points" | "occurred_at">;
+
+export type DailyRewardClaim = Pick<RewardClaim, "user_id" | "base_points" | "upgraded_points" | "claimed_at">;
+
 export const fetchAnonymousUserById = async (userId: string) => {
   const encodedId = encodeURIComponent(userId);
   const rows = await requestSupabase<AnonymousUser[]>("anonymous_users", "GET", {
@@ -137,5 +143,23 @@ export const fetchRewardClaimsByUserId = async (userId: string) => {
   const encodedId = encodeURIComponent(userId);
   return requestSupabase<RewardClaim[]>("reward_claims", "GET", {
     query: `select=id,user_id,milestone_key,base_points,upgraded_points,claimed_at&user_id=eq.${encodedId}&order=claimed_at.desc`,
+  });
+};
+
+export const fetchDailyRecords = async (isoDate: string) => {
+  return requestSupabase<DailyRecord[]>("records", "GET", {
+    query: `select=user_id,category,amount,recorded_at&recorded_at=gte.${isoDate}T00:00:00.000Z&recorded_at=lt.${isoDate}T23:59:59.999Z&order=recorded_at.desc`,
+  });
+};
+
+export const fetchDailyPointEvents = async (isoDate: string) => {
+  return requestSupabase<DailyPointEvent[]>("point_events", "GET", {
+    query: `select=user_id,event_type,points,occurred_at&occurred_at=gte.${isoDate}T00:00:00.000Z&occurred_at=lt.${isoDate}T23:59:59.999Z&order=occurred_at.desc`,
+  });
+};
+
+export const fetchDailyRewardClaims = async (isoDate: string) => {
+  return requestSupabase<DailyRewardClaim[]>("reward_claims", "GET", {
+    query: `select=user_id,base_points,upgraded_points,claimed_at&claimed_at=gte.${isoDate}T00:00:00.000Z&claimed_at=lt.${isoDate}T23:59:59.999Z&order=claimed_at.desc`,
   });
 };
